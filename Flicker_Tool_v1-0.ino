@@ -83,6 +83,27 @@ void ascDesc() {
     oled.display();
     delay(1000);
   }
+  bool runningExp = true;
+  bool freqDir = true;
+  int freqSamples = 0;
+  int ascFreqs[] = {0.0, 0.0};
+  int descFreqs[] = {0.0, 0.0};
+  int startFreq = 10;
+  int endFreq = 80;
+  float freqInc_ms = 0.5; // ms
+  int freqDelay_ms = 1000 / startFreq;
+  unsigned long lastFreqUpdate_ms = millis();
+  while(runningExp) {
+    unsigned long cur_ms = millis();
+    if (cur_ms - lastFreqUpdate_ms >= freqInc_ms) {
+      freqInc_ms = freqDelay_ms + freqInc_ms;
+      if (freqInc_ms * 80
+      lastFreqUpdate_ms = cur_ms;
+    }
+    if (!digitalRead(greenBtnPort)) {
+      return;
+    }
+  }
 }
 
 float updateBattery() {
