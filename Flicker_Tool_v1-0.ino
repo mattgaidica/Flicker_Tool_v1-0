@@ -1,4 +1,5 @@
-#include <Wire.h>
+
+#include "Statistic.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_FeatherOLED.h>
@@ -35,6 +36,9 @@ void setup() {
   oled.init();
   oled.setBatteryVisible(true);
   oled.clearMsgArea();
+
+//  Serial.begin(19200);
+//  Serial.println("Initialised");
 }
 
 void loop() {
@@ -46,9 +50,9 @@ void loop() {
   if (cur_ms - flickrFade_ms_last >= flickrFade_ms) {
     analogWrite(flickrPort,count);
     if (fadeDir) {
-      count += 1;
+      count += 2;
     } else {
-      count -= 1;
+      count -= 2;
     }
     if (count > 254 || count < 1) {
       fadeDir = !fadeDir;
@@ -63,6 +67,8 @@ void loop() {
   }
 
   if (!digitalRead(greenBtnPort)) {
+    pinMode(flickrPort, OUTPUT);
+    digitalWrite(flickrPort,LOW);
     ascDesc();
   }
 }
@@ -73,6 +79,7 @@ void startupMsg() {
   oled.display();
 }
 
+// EXPERIMENTAL PROTOCOL
 void ascDesc() {
   digitalWrite(flickrPort,false);
   for(int ii=3; ii > 0; ii--) {
@@ -85,23 +92,133 @@ void ascDesc() {
   }
   bool runningExp = true;
   bool freqDir = true;
-  int freqSamples = 0;
-  int ascFreqs[] = {0.0, 0.0};
-  int descFreqs[] = {0.0, 0.0};
-  int startFreq = 10;
-  int endFreq = 80;
-  float freqInc_ms = 0.5; // ms
-  int freqDelay_ms = 1000 / startFreq;
+  bool ledState = true;
+  int curSample = 0;
+  int requireSamples = 2;
+  float ascFreqs[] = {0.0, 0.0};
+  float descFreqs[] = {0.0, 0.0};
+  float startFreq = 25.0;
+  float endFreq = 55.0;
+
+  float freqInc = 0.5;
+  float curFreq = startFreq;
+  int curDelay_ms = 1000 / curFreq;
+  int incDelay_ms = 200;
+  
   unsigned long lastFreqUpdate_ms = millis();
+  unsigned long lastFlicker_ms = millis();
+  updateBattery();
+  oled.println(curFreq);
+  oled.println("Asc, Press Green");
+  oled.display();
   while(runningExp) {
     unsigned long cur_ms = millis();
-    if (cur_ms - lastFreqUpdate_ms >= freqInc_ms) {
-      freqInc_ms = freqDelay_ms + freqInc_ms;
-      if (freqInc_ms * 80
+    // make light flicker
+    if (cur_ms - lastFlicker_ms >= curDelay_ms / 2) {
+      if (ledState == true) {
+        digitalWrite(flickrPort,HIGH);
+        ledState = false;
+      } else {
+        digitalWrite(flickrPort,LOW);
+        ledState = true;
+      }
+      lastFlicker_ms = cur_ms;
+    }
+    // handle inc/dec of freq
+    if (cur_ms - lastFreqUpdate_ms >= incDelay_ms) {
+      if (freqDir == true) {
+        curFreq = curFreq + freqInc;
+        if (curFreq > endFreq) {
+          curFreq = startFreq;
+          delay(1000);
+        }
+      } else {
+        curFreq = curFreq - freqInc;
+        if (curFreq < startFreq) {
+          curFreq = endFreq;
+          delay(1000);
+        }
+      }
+      curDelay_ms = 1000 / curFreq;
       lastFreqUpdate_ms = cur_ms;
     }
     if (!digitalRead(greenBtnPort)) {
-      return;
+      digitalWrite(flickrPort,LOW);
+      if (freqDir == true) {
+        ascFreqs[curSample] = curFreq;
+        freqDir = false;
+        updateBattery();
+        oled.println(curFreq);
+        oled.println("Desc, Press Green");
+        oled.display();
+        curFreq = endFreq;
+      } else {
+        descFreqs[curSample] = curFreq;
+        freqDir = true;
+        curSample++;
+        updateBattery();
+        oled.println(curFreq);
+        oled.println("Asc, Press Green");
+        oled.display();
+        curFreq = startFreq;
+      }
+      if (curSample == requireSamples) {
+        runningExp = false;
+      } else {
+        delay(1000);
+      }
+    }
+//    if (!digitalRead(redBtnPort)) {
+//      runningExp = false;
+//      updateBattery();
+//      oled.println("Exiting!");
+//      oled.display();
+//      delay(500);
+//      return;
+//    }
+  }
+  showResults(ascFreqs,descFreqs,requireSamples);
+}
+
+void showResults(float ascFreqs[],float descFreqs[],int n) {
+  Statistic ascStats;
+  ascStats.clear();
+  for (int ii = 0; ii < n; ii++) {
+    ascStats.add(ascFreqs[ii]);
+  }
+  updateBattery();
+  oled.print("ASC: ");
+  oled.print(ascStats.average());
+  oled.print(" +/- ");
+  oled.println(ascStats.pop_stdev());
+
+  Statistic descStats;
+  descStats.clear();
+  for (int ii = 0; ii < n; ii++) {
+    descStats.add(descFreqs[ii]);
+  }
+  oled.print("DES: ");
+  oled.print(descStats.average());
+  oled.print(" +/- ");
+  oled.println(descStats.pop_stdev());
+
+  float allAvg[] = {ascStats.average(),descStats.average()};
+  Statistic allStats;
+  allStats.clear();
+  for (int ii = 0; ii < n; ii++) {
+    allStats.add(allAvg[ii]);
+  }
+  oled.print("ALL: ");
+  oled.print(allStats.average());
+  oled.print(" +/- ");
+  oled.println(allStats.pop_stdev());
+  
+  oled.display();
+
+  bool doLoop = true;
+  while (doLoop) {
+    if (!digitalRead(redBtnPort)) {
+      doLoop = false;
     }
   }
 }
